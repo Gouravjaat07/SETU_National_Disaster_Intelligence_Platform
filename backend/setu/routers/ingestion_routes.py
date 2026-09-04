@@ -124,6 +124,42 @@ class Dispatch(BaseModel):
     locationScoped: bool = True
 
 
+class DeviceRegistration(BaseModel):
+    token: str
+    tokenType: str = "EXPO"
+    platform: str
+    appVersion: Optional[str] = None
+
+
+@router.post("/notifications/device")
+async def register_device(payload: DeviceRegistration, request: Request,
+                          user: Dict[str, Any] = Depends(current_user)):
+    """Store a mobile delivery token without changing notification semantics.
+
+    Delivery remains a deployment concern; notification records and acknowledgement
+    are still the source of truth until a push provider is configured.
+    """
+    if not payload.token.strip():
+        raise HTTPException(status_code=400, detail="token is required")
+    now = now_utc()
+    await db.device_tokens.update_one(
+        {"userId": user["userId"], "token": payload.token},
+        {"$set": {"userId": user["userId"], "token": payload.token,
+                  "tokenType": payload.tokenType, "platform": payload.platform,
+                  "appVersion": payload.appVersion, "active": True,
+                  "updatedAt": now}, "$setOnInsert": {"createdAt": now}},
+        upsert=True,
+    )
+    return {"registered": True, "delivery": "TOKEN_STORED", "tokenType": payload.tokenType}
+
+
+@router.delete("/notifications/device")
+async def unregister_device(token: str, user: Dict[str, Any] = Depends(current_user)):
+    await db.device_tokens.update_one({"userId": user["userId"], "token": token},
+                                      {"$set": {"active": False, "updatedAt": now_utc()}})
+    return {"unregistered": True}
+
+
 @router.post("/notifications/dispatch")
 async def dispatch_notification(payload: Dispatch, request: Request,
                                 user: Dict[str, Any] = Depends(ADMIN_ONLY)):

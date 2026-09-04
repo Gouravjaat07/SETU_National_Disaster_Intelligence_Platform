@@ -13,11 +13,9 @@ services:
         value: setu
       - key: JWT_SECRET
         generateValue: true
-      - key: MISTRAL_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
-      - key: MISTRAL_MODEL
-        value: mistral-large-latest
-      - key: MISTRAL_VISION_MODEL
-        value: pixtral-12b-latest
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
       - key: CORS_ORIGINS
         sync: false

@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "SETU",
+    "slug": "setu-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "setu",
+    "plugins": [
+      ["expo-location", { "locationWhenInUsePermission": "SETU uses your location for shelters, SOS and rescue operations.", "locationAlwaysAndWhenInUsePermission": "SETU shares operational location only during an active rescue operation." }],
+      "expo-notifications",
+      "expo-secure-store"
+    ],
+    "android": {
+      "package": "org.setu.disasterresponse",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "POST_NOTIFICATIONS"]
+    },
+    "ios": {
+      "bundleIdentifier": "org.setu.disasterresponse",
+      "supportsTablet": true,
+      "infoPlist": { "UIBackgroundModes": ["location", "remote-notification"] }
+    }
+  }
+}

@@ -1,27 +1,13 @@
-"""Mistral wrapper — calls the Mistral AI API directly.
-
-Previously this went through Emergent's Universal LLM proxy
-(emergentintegrations.llm.chat.LlmChat), which only works inside the
-Emergent platform. This version talks to https://api.mistral.ai
-directly with a normal Mistral API key, so it works anywhere
-(Render, your own server, etc). Function signatures are unchanged —
-server.py did not need any edits.
-"""
+"""Server-side OpenAI gateway for SETU text, streaming, and vision assistance."""
 import os
 from typing import AsyncGenerator, Optional
 
-try:
-    # mistralai >= 2.0
-    from mistralai.client import Mistral
-except ImportError:
-    # mistralai < 2.0
-    from mistralai import Mistral
+from openai import (APIConnectionError, APIStatusError, APITimeoutError,
+                    AsyncOpenAI, AuthenticationError, RateLimitError)
 
-MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
-MODEL_NAME = os.environ.get("MISTRAL_MODEL", "mistral-large-latest")
-VISION_MODEL_NAME = os.environ.get("MISTRAL_VISION_MODEL", "pixtral-12b-latest")
-
-_client = Mistral(api_key=MISTRAL_API_KEY)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+MODEL_NAME = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=60.0, max_retries=0)
 
 DISASTER_SYSTEM_PROMPT = (
     "You are 'Setu' — the official multilingual AI assistant of the National Disaster "
@@ -35,23 +21,60 @@ DISASTER_SYSTEM_PROMPT = (
 )
 
 
+class AIServiceError(RuntimeError):
+    """Safe, provider-independent error exposed to SETU routes."""
+
+
+def user_facing_error(error: Exception) -> str:
+    if isinstance(error, AuthenticationError):
+        return "AI Assistant is temporarily unavailable. Please try again."
+    if isinstance(error, RateLimitError):
+        return "AI Assistant is busy right now. Please try again shortly."
+    if isinstance(error, (APITimeoutError, APIConnectionError)):
+        return "AI Assistant could not be reached. Please try again."
+    if isinstance(error, APIStatusError):
+        return "AI Assistant is temporarily unavailable. Please try again."
+    if isinstance(error, AIServiceError):
+        return str(error)
+    return "AI Assistant is temporarily unavailable. Please try again."
+
+
+def _check_configuration() -> None:
+    if not OPENAI_API_KEY.strip():
+        raise AIServiceError("AI Assistant is not configured on the server.")
+
+
+def _extract_text(response) -> str:
+    choices = getattr(response, "choices", None) or []
+    value = choices[0].message.content if choices else ""
+    value = (value or "").strip()
+    if not value:
+        raise AIServiceError("AI Assistant returned an empty response.")
+    return value
+
+
 async def stream_chat(session_id: str, text: str) -> AsyncGenerator[str, None]:
-    stream = await _client.chat.stream_async(
+    del session_id  # The existing endpoint does not persist conversation history.
+    _check_configuration()
+    stream = await _client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1024,
         messages=[
             {"role": "system", "content": DISASTER_SYSTEM_PROMPT},
             {"role": "user", "content": text},
         ],
+        stream=True,
     )
     async for event in stream:
-        delta = event.data.choices[0].delta.content
+        choices = getattr(event, "choices", None) or []
+        delta = choices[0].delta.content if choices else None
         if delta:
             yield delta
 
 
 async def generate_text(prompt: str, system: Optional[str] = None) -> str:
-    resp = await _client.chat.complete_async(
+    _check_configuration()
+    response = await _client.chat.completions.create(
         model=MODEL_NAME,
         max_tokens=1024,
         messages=[
@@ -59,27 +82,21 @@ async def generate_text(prompt: str, system: Optional[str] = None) -> str:
             {"role": "user", "content": prompt},
         ],
     )
-    return (resp.choices[0].message.content or "").strip()
+    return _extract_text(response)
 
 
 async def analyze_image(prompt: str, image_base64: str, system: Optional[str] = None) -> str:
-    # Build a data: URL if the frontend sent raw base64 without one already.
-    data_url = image_base64
-    if not data_url.startswith("data:"):
-        data_url = f"data:image/jpeg;base64,{image_base64}"
-
-    resp = await _client.chat.complete_async(
-        model=VISION_MODEL_NAME,
+    _check_configuration()
+    data_url = image_base64 if image_base64.startswith("data:") else f"data:image/jpeg;base64,{image_base64}"
+    response = await _client.chat.completions.create(
+        model=MODEL_NAME,
         max_tokens=1024,
         messages=[
             {"role": "system", "content": system or DISASTER_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": data_url},
-                ],
-            },
+            {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ]},
         ],
     )
-    return (resp.choices[0].message.content or "").strip()
+    return _extract_text(response)

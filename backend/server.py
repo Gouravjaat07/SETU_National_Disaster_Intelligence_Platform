@@ -250,7 +250,7 @@ async def damage_estimate(payload: ImagePayload):
         raw = await ai_service.analyze_image(prompt, payload.image_base64)
     except Exception as e:
         logging.exception("Damage estimate failed")
-        raise HTTPException(500, f"AI vision failed: {e}")
+        raise HTTPException(500, ai_service.user_facing_error(e))
     return {"raw": raw}
 
 
@@ -266,7 +266,7 @@ async def water_depth_estimate(payload: ImagePayload):
     try:
         raw = await ai_service.analyze_image(prompt, payload.image_base64)
     except Exception as e:
-        raise HTTPException(500, f"AI vision failed: {e}")
+        raise HTTPException(500, ai_service.user_facing_error(e))
     return {"raw": raw}
 
 
@@ -282,7 +282,7 @@ async def image_classify(payload: ImagePayload):
     try:
         raw = await ai_service.analyze_image(prompt, payload.image_base64)
     except Exception as e:
-        raise HTTPException(500, f"AI vision failed: {e}")
+        raise HTTPException(500, ai_service.user_facing_error(e))
     return {"raw": raw}
 
 
@@ -301,7 +301,7 @@ async def fakenews_check(payload: FakeNewsPayload):
     try:
         raw = await ai_service.generate_text(prompt)
     except Exception as e:
-        raise HTTPException(500, f"AI failed: {e}")
+        raise HTTPException(500, ai_service.user_facing_error(e))
     return {"raw": raw}
 
 
@@ -314,7 +314,7 @@ async def chat_stream(req: ChatRequest):
                 yield f"data: {json.dumps({'delta': token})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'error': ai_service.user_facing_error(e)})}\n\n"
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
@@ -328,7 +328,7 @@ async def chat_message(req: ChatRequest):
     try:
         text = await ai_service.generate_text(req.message)
     except Exception as e:
-        raise HTTPException(500, f"AI failed: {e}")
+        raise HTTPException(500, ai_service.user_facing_error(e))
     return {"response": text, "session_id": req.session_id}
 
 
